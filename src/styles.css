@@ -1,0 +1,195 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* Dark, Hyperush-inspired workspace theme by default */
+:root {
+  --radius: 0.75rem;
+  --background: oklch(0.16 0.015 265);
+  --foreground: oklch(0.97 0.005 260);
+  --card: oklch(0.21 0.018 265);
+  --card-foreground: oklch(0.97 0.005 260);
+  --popover: oklch(0.19 0.018 265);
+  --popover-foreground: oklch(0.97 0.005 260);
+  --primary: oklch(0.72 0.18 295);
+  --primary-foreground: oklch(0.12 0.02 265);
+  --secondary: oklch(0.26 0.02 265);
+  --secondary-foreground: oklch(0.97 0.005 260);
+  --muted: oklch(0.24 0.018 265);
+  --muted-foreground: oklch(0.68 0.02 265);
+  --accent: oklch(0.28 0.05 295);
+  --accent-foreground: oklch(0.97 0.005 260);
+  --destructive: oklch(0.65 0.22 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 10%);
+  --ring: oklch(0.72 0.18 295);
+
+  --status-todo: oklch(0.7 0.03 260);
+  --status-progress: oklch(0.75 0.15 230);
+  --status-review: oklch(0.78 0.16 75);
+  --status-done: oklch(0.72 0.17 155);
+
+  --priority-low: oklch(0.7 0.05 220);
+  --priority-medium: oklch(0.78 0.13 90);
+  --priority-high: oklch(0.72 0.18 35);
+  --priority-urgent: oklch(0.65 0.24 25);
+
+  --category-feature: oklch(0.72 0.18 295);
+  --category-bug: oklch(0.65 0.24 25);
+  --category-improvement: oklch(0.75 0.15 200);
+  --category-chore: oklch(0.7 0.03 260);
+  --category-design: oklch(0.75 0.17 330);
+  --category-docs: oklch(0.78 0.13 90);
+
+  --sidebar: oklch(0.18 0.018 265);
+  --sidebar-foreground: oklch(0.97 0.005 260);
+  --sidebar-primary: oklch(0.72 0.18 295);
+  --sidebar-primary-foreground: oklch(0.12 0.02 265);
+  --sidebar-accent: oklch(0.26 0.02 265);
+  --sidebar-accent-foreground: oklch(0.97 0.005 260);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.72 0.18 295);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -20%, oklch(0.72 0.18 295 / 0.15), transparent),
+      radial-gradient(ellipse 60% 40% at 90% 100%, oklch(0.65 0.2 230 / 0.1), transparent);
+    background-attachment: fixed;
+  }
+}
+
+/* ===== "My task" animated effects: burning edges ===== */
+@keyframes mine-border-spin {
+  to { transform: rotate(1turn); }
+}
+@keyframes mine-fire-flicker {
+  0%   { opacity: .85; filter: blur(10px) brightness(1); }
+  25%  { opacity: 1;   filter: blur(13px) brightness(1.15); }
+  50%  { opacity: .9;  filter: blur(11px) brightness(1.05); }
+  75%  { opacity: 1;   filter: blur(14px) brightness(1.2); }
+  100% { opacity: .85; filter: blur(10px) brightness(1); }
+}
+@keyframes mine-ember-rise {
+  0%   { transform: translateY(10%) scaleY(1);   opacity: 0; }
+  20%  { opacity: .8; }
+  100% { transform: translateY(-40%) scaleY(1.4); opacity: 0; }
+}
+
+.mine-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+/* rotating fire gradient border */
+.mine-card::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  z-index: -2;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 0deg,
+    oklch(0.80 0.22 80) 0%,
+    oklch(0.72 0.26 55) 15%,
+    oklch(0.65 0.28 30) 30%,
+    oklch(0.55 0.24 20) 45%,
+    oklch(0.72 0.26 55) 65%,
+    oklch(0.80 0.22 80) 85%,
+    oklch(0.80 0.22 80) 100%
+  );
+  animation: mine-border-spin 5s linear infinite, mine-fire-flicker 1.4s ease-in-out infinite;
+  filter: blur(12px);
+  opacity: .95;
+}
+/* solid inner mask so the border stays thin */
+.mine-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--popover);
+  box-shadow:
+    inset 0 0 0 1px oklch(0.72 0.24 45 / 0.6),
+    inset 0 0 22px oklch(0.68 0.26 35 / 0.35),
+    0 0 28px oklch(0.68 0.26 35 / 0.45);
+}
+/* rising ember/heat haze overlay */
+.mine-card > .mine-rain {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 15% 95%, oklch(0.78 0.24 55 / 0.45) 0px, transparent 38%),
+    radial-gradient(circle at 80% 100%, oklch(0.72 0.26 30 / 0.40) 0px, transparent 42%),
+    radial-gradient(circle at 50% 100%, oklch(0.82 0.22 65 / 0.50) 0px, transparent 55%);
+  mix-blend-mode: screen;
+  animation: mine-ember-rise 2.4s ease-in infinite;
+  opacity: .8;
+}
+
+/* Hide Lovable badge */
+#lovable-badge,
+a[href*="lovable.dev"][target="_blank"],
+[id^="lovable-badge"],
+[class*="lovable-badge"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Hide global scrollbars completely but keep page/dialogs scrollable */
+::-webkit-scrollbar {
+  display: none;
+}
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}

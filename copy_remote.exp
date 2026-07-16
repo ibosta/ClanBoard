@@ -1,0 +1,29 @@
+#!/usr/bin/expect -f
+set timeout 300
+set host "212.64.193.32"
+set user "root"
+set password "*LOCAL*game*44"
+
+# Sync entire local project directory to remote VPS, excluding node_modules, git, env and local configs
+spawn rsync -avz --delete \
+  --exclude "node_modules" \
+  --exclude ".git" \
+  --exclude ".gemini" \
+  --exclude ".lovable" \
+  --exclude "dist" \
+  --exclude ".env" \
+  -e "ssh -o StrictHostKeyChecking=no" ./ $user@$host:/opt/hyperush-kanban-spa/
+
+expect {
+    "password:" {
+        send "$password\r"
+        exp_continue
+    }
+    eof {
+        # Done
+    }
+    timeout {
+        send_user "Rsync timeout\n"
+        exit 1
+    }
+}

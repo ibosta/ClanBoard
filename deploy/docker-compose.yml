@@ -1,0 +1,57 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hyperush}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hyperush}
+      POSTGRES_DB: ${POSTGRES_DB:-hyperush}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hyperush}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      APP_DATA_DIR: /data
+      DATABASE_URL: postgresql://${POSTGRES_USER:-hyperush}:${POSTGRES_PASSWORD:-hyperush}@db:5432/${POSTGRES_DB:-hyperush}
+      # Cloudflare Tunnel arkasında çalışırken gerçek ziyaretçi IP'sini almak için
+      TRUST_PROXY: "true"
+    # Cloudflare Tunnel kullanıyorsan portu dışa açmana gerek yok.
+    # Sadece yerel erişim / debug için istersen aç:
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    volumes:
+      - appdata:/data
+
+  # ---- Cloudflare Tunnel (opsiyonel ama önerilen) --------------------
+  # 1) https://one.dash.cloudflare.com → Networks → Tunnels → Create a tunnel
+  # 2) "Cloudflared" seç, tunnel adı ver, TOKEN'ı kopyala
+  # 3) deploy/.env dosyasına şunu ekle:  CLOUDFLARE_TUNNEL_TOKEN=eyJ...
+  # 4) Public hostname eklerken Service olarak:  http://app:3000  yaz
+  # 5) `docker compose up -d`  → panel.alanadin.com üzerinden yayında
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - app
+    profiles: ["tunnel"]
+
+volumes:
+  pgdata:
+  appdata:

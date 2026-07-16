@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hyperush · İlk Kurulum</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #0a0a0f; color: #e5e5eb; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+  .card { background: #14141d; border: 1px solid #2a2a3a; border-radius: 16px; padding: 2.5rem; max-width: 640px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+  h1 { margin: 0 0 0.5rem; font-size: 1.75rem; }
+  p.lead { color: #9494a4; margin: 0 0 2rem; }
+  label { display: block; font-size: 0.85rem; color: #b4b4c4; margin: 1rem 0 0.4rem; font-weight: 500; }
+  input { width: 100%; padding: 0.7rem 0.9rem; background: #0f0f18; border: 1px solid #2a2a3a; color: #e5e5eb; border-radius: 8px; font-size: 0.95rem; font-family: inherit; }
+  input:focus { outline: none; border-color: #ff6b35; }
+  .hint { font-size: 0.8rem; color: #7a7a8a; margin-top: 0.3rem; }
+  .callback { background: #1a1a26; border: 1px dashed #ff6b35; border-radius: 8px; padding: 0.7rem 0.9rem; font-family: ui-monospace, monospace; font-size: 0.85rem; margin-top: 0.4rem; color: #ff9160; word-break: break-all; cursor: pointer; }
+  button { margin-top: 2rem; width: 100%; padding: 0.9rem; background: linear-gradient(135deg, #ff6b35, #ff3860); color: white; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  @media (max-width: 500px) { .row { grid-template-columns: 1fr; } }
+  .msg { margin-top: 1rem; padding: 0.7rem; border-radius: 8px; font-size: 0.9rem; }
+  .msg.error { background: rgba(255,56,96,0.1); border: 1px solid #ff3860; color: #ff8a9f; }
+  .msg.ok { background: rgba(80,220,120,0.1); border: 1px solid #50dc78; color: #a0f0b8; }
+  small { color: #6a6a7a; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Hyperush Panel Kurulumu</h1>
+  <p class="lead">Bu kurumsal panel yalnızca ekibin için — Google Workspace üzerinden ilk giriş yapan sen otomatik admin olacaksın. Aşağıdaki bilgileri doldurup <b>Kur</b>'a bas.</p>
+
+  <form id="f">
+    <label>Marka adı</label>
+    <input name="brand" value="Hyperush" required />
+
+    <label>Uygulama URL'i <small>(tarayıcıda gördüğün)</small></label>
+    <input name="appUrl" id="appUrl" required />
+    <div class="hint">Google Cloud Console'da <b>Authorized redirect URI</b> olarak şunu ekle:</div>
+    <div class="callback" id="cb" onclick="navigator.clipboard.writeText(this.textContent).then(()=>this.style.borderColor='#50dc78')"></div>
+
+    <label>Google OAuth Client ID</label>
+    <input name="googleClientId" required placeholder="xxxxx.apps.googleusercontent.com" />
+
+    <label>Google OAuth Client Secret</label>
+    <input name="googleClientSecret" type="password" required placeholder="GOCSPX-..." />
+
+    <div class="row">
+      <div>
+        <label>GitHub Client ID <small>(ops.)</small></label>
+        <input name="githubClientId" placeholder="Iv1.xxxx" />
+      </div>
+      <div>
+        <label>GitHub Client Secret <small>(ops.)</small></label>
+        <input name="githubClientSecret" type="password" />
+      </div>
+    </div>
+    <div class="hint">GitHub OAuth callback: <span id="ghcb"></span></div>
+
+    <label>Destek e-postası</label>
+    <input name="supportEmail" value="info@podhyperush.com" />
+
+    <button type="submit" id="btn">Kur ve Google ile Giriş Yap</button>
+    <div id="msg"></div>
+  </form>
+</div>
+<script>
+const appUrlInput = document.getElementById('appUrl');
+const cb = document.getElementById('cb');
+const ghcb = document.getElementById('ghcb');
+function refresh() {
+  const u = appUrlInput.value.replace(/\/$/, '') || window.location.origin;
+  cb.textContent = u + '/api/auth/google/callback';
+  ghcb.textContent = u + '/api/auth/github/callback';
+}
+appUrlInput.value = window.location.origin;
+refresh();
+appUrlInput.addEventListener('input', refresh);
+
+document.getElementById('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('btn');
+  const msg = document.getElementById('msg');
+  btn.disabled = true; btn.textContent = 'Kaydediliyor...';
+  msg.className = '';
+  const data = Object.fromEntries(new FormData(e.target));
+  const r = await fetch('/api/setup/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  const j = await r.json();
+  if (!r.ok) {
+    msg.className = 'msg error';
+    msg.textContent = 'Hata: ' + (j.error || 'bilinmiyor');
+    btn.disabled = false; btn.textContent = 'Kur ve Google ile Giriş Yap';
+    return;
+  }
+  msg.className = 'msg ok';
+  msg.textContent = 'Kaydedildi. Google\'a yönlendiriliyor...';
+  setTimeout(() => { window.location.href = '/api/auth/google/start'; }, 800);
+});
+</script>
+</body>
+</html>

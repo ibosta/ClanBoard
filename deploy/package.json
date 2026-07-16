@@ -1,0 +1,18 @@
+{
+  "name": "hyperush-panel-server",
+  "version": "1.0.0",
+  "description": "Hyperush self-hosted proje yönetim paneli",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "cookie": "^0.7.2",
+    "cookie-signature": "^1.2.2",
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
+    "ws": "^8.18.0"
+  }
+}

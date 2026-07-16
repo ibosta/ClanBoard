@@ -1,0 +1,45 @@
+#!/usr/bin/expect -f
+set timeout 180
+set host "212.64.193.32"
+set user "root"
+set password "*LOCAL*game*44"
+set cmd [lindex $argv 0]
+
+if { $cmd == "" } {
+    set cmd "docker ps"
+}
+
+spawn ssh -o StrictHostKeyChecking=no $user@$host
+expect {
+    "password:" {
+        send "$password\r"
+        exp_continue
+    }
+    "root@" {
+        # Logged in
+    }
+    timeout {
+        send_user "Connection timeout\n"
+        exit 1
+    }
+}
+
+# Wait for prompt to stabilize
+sleep 1
+
+# Send command
+send "$cmd\r"
+
+# Wait for command output and next prompt
+expect {
+    "root@" {
+        # Done
+    }
+    timeout {
+        send_user "Command timeout\n"
+        exit 1
+    }
+}
+
+send "exit\r"
+expect eof
