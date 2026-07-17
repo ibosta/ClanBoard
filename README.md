@@ -26,6 +26,7 @@
 - **🔥 Burning Task Card Animation** – Visually prioritizing assignments! Tasks assigned to you display a glowing, animated ember fire border to keep you focused.
 - **💬 Spaced Threading & Mentions** – Mention teammates with `@` using real-time autocompletion and Turkish character normalization. Sub-comments are styled spacing-first (no heavy borders or nested card fatigue) and collapse/expand dynamically.
 - **🔔 Live System Notifications** – Instant browser toasts and native OS push alerts sliding directly onto your computer desktop, even when the tab is running in the background. Includes a ✨ Test button to check settings.
+- **📧 E-posta Bildirimleri (SMTP Integration)** – Görev atanması, yorum yapılması veya duyurularda kullanıcılara sistem logosunu barındıran premium tasarımlı HTML bildirim e-postaları gönderilir. E-postalardaki butonlar/bağlantılar kullanıcıları doğrudan ilgili göreve veya yoruma yönlendirir.
 - **🐙 Git Sync Engine** – Securely authenticate your GitHub account (encrypted via AES-256-GCM) to automatically match and attach commits to active board tasks every 30 seconds.
 - **🛡️ First-Boot Installer Lock** – An intuitive setup wizard handles initialization and automatically locks itself down upon completion (redirecting to `/` and throwing `403` to prevent re-configuration attempts).
 
