@@ -36,6 +36,8 @@ dist-ssr
 .env.*
 deploy/.env
 deploy/.env.*
+!.env.example
+!deploy/.env.example
 
 # Local data & database directories
 deploy/data/

@@ -136,6 +136,7 @@ function Board() {
   const [openDialog, setOpenDialog] = useState<Status | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const editing = useMemo(() => {
     if (!search.taskId || tasks.length === 0) return null;
@@ -156,6 +157,26 @@ function Board() {
     profiles.forEach((p) => m.set(p.id, p));
     return m;
   }, [profiles]);
+
+  const filteredTasks = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return tasks;
+    return tasks.filter((t) => {
+      const titleMatch = t.title.toLowerCase().includes(q);
+      const descMatch = (t.description || "").toLowerCase().includes(q);
+      const tagsMatch = t.tags && t.tags.some((tag) => tag.toLowerCase().includes(q));
+      let assigneeMatch = false;
+      if (t.assignee_id) {
+        const p = profilesById.get(t.assignee_id);
+        if (p) {
+          assigneeMatch =
+            (p.full_name || "").toLowerCase().includes(q) ||
+            (p.email || "").toLowerCase().includes(q);
+        }
+      }
+      return titleMatch || descMatch || tagsMatch || assigneeMatch;
+    });
+  }, [tasks, searchQuery, profilesById]);
 
   useEffect(() => {
     const load = async () => {
@@ -211,9 +232,9 @@ function Board() {
 
   const byColumn = useMemo(() => {
     const m: Record<Status, Task[]> = { todo: [], in_progress: [], review: [], done: [] };
-    tasks.forEach((t) => m[t.status].push(t));
+    filteredTasks.forEach((t) => m[t.status].push(t));
     return m;
-  }, [tasks]);
+  }, [filteredTasks]);
 
   const handleDrop = async (status: Status) => {
     if (!dragId) return;
@@ -255,23 +276,52 @@ function Board() {
 
   return (
     <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-4 sm:py-6">
-      <div className="mb-4 sm:mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Görev Panosu</h1>
-          <p className="text-xs sm:text-sm text-muted-foreground mt-1 truncate">
-            {loading ? "Yükleniyor..." : `${tasks.length} görev · ${profiles.length} ekip üyesi`}
-          </p>
+      <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+          <div className="shrink-0">
+            <h1 className="text-lg sm:text-xl font-semibold tracking-tight">Görev Panosu</h1>
+            <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">
+              {loading ? "..." : `${tasks.length} görev`}
+            </p>
+          </div>
+
+          {/* Arama Barı */}
+          <div className="relative w-36 sm:w-48 shrink-0">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Ara..."
+              className="pl-8 pr-7 h-7 text-[11px] bg-card/40 border-border/40 focus:border-primary/50 focus:ring-0"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer p-0.5"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            )}
+          </div>
+
+          {searchQuery && (
+            <span className="text-[10px] text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded shrink-0">
+              {filteredTasks.length} sonuç
+            </span>
+          )}
         </div>
+
         <div className="flex items-center gap-2 shrink-0">
           <Button
             type="button"
             variant="outline"
             size="sm"
             onClick={() => setTrashOpen(true)}
-            className="gap-1.5 relative"
+            className="gap-1.5 relative h-8 text-xs cursor-pointer"
             aria-label="Çöp kutusu"
           >
-            <Trash className="h-4 w-4" />
+            <Trash className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Çöp</span>
             {trash.length > 0 && (
               <span className="ml-1 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full text-[10px] font-semibold bg-destructive/20 text-destructive">
@@ -279,8 +329,8 @@ function Board() {
               </span>
             )}
           </Button>
-          <Button size="sm" onClick={() => setOpenDialog("todo")} className="gap-1.5">
-            <Plus className="h-4 w-4" /> <span className="hidden xs:inline sm:inline">Yeni görev</span>
+          <Button size="sm" onClick={() => setOpenDialog("todo")} className="gap-1.5 h-8 text-xs cursor-pointer">
+            <Plus className="h-3.5 w-3.5" /> <span className="hidden xs:inline sm:inline">Yeni görev</span>
           </Button>
         </div>
       </div>

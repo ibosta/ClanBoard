@@ -18,9 +18,22 @@ async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise<T> {
     ...opts,
   });
   if (!r.ok) {
-    const text = await r.text().catch(() => "");
-    let msg = text || r.statusText;
-    try { const j = JSON.parse(text); if (j?.error) msg = j.error; } catch {}
+    const contentType = r.headers.get("content-type") || "";
+    let msg = "";
+    if (contentType.includes("html") || r.status === 502) {
+      msg = `Sunucuya bağlanılamadı (Hata ${r.status}). Lütfen internet bağlantınızı kontrol edin veya birkaç saniye sonra tekrar deneyin.`;
+    } else {
+      const text = await r.text().catch(() => "");
+      msg = text || r.statusText;
+      try {
+        const j = JSON.parse(text);
+        if (j?.error) msg = j.error;
+      } catch {}
+    }
+    // Truncate message if it is abnormally long
+    if (msg.length > 150) {
+      msg = msg.slice(0, 150) + "...";
+    }
     throw new Error(msg);
   }
   if (r.status === 204) return null as unknown as T;
@@ -114,11 +127,29 @@ class QueryBuilder implements PromiseLike<Result<any>> {
         const id = this.eqVal("id");
         if (!id) throw new Error("profiles.update requires eq('id', ...)");
         const approved = this.values?.approved;
-        if (typeof approved === "boolean") {
+        const role = this.values?.role;
+        const can_announce = this.values?.can_announce;
+        
+        if (typeof approved === "boolean" && role === undefined && can_announce === undefined) {
           await apiFetch(`/api/admin/users/${id}/${approved ? "approve" : "revoke"}`, { method: "POST" });
           return null;
         }
+        
+        if (role !== undefined || can_announce !== undefined) {
+          await apiFetch(`/api/admin/users/${id}/permissions`, {
+            method: "POST",
+            body: JSON.stringify({ role, can_announce }),
+          });
+          return null;
+        }
+        
         throw new Error("Unsupported profiles.update fields");
+      }
+      if (this.op === "delete") {
+        const id = this.eqVal("id");
+        if (!id) throw new Error("profiles.delete requires eq('id', ...)");
+        await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" });
+        return null;
       }
     }
 

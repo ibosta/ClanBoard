@@ -6,7 +6,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import { loadConfig, saveConfig, isSetupComplete } from "./config.js";
-import { runMigrations, query } from "./db.js";
+import { runMigrations, query, pool } from "./db.js";
 import {
   readSession,
   writeSession,
@@ -213,7 +213,7 @@ app.get("/api/users", requireAuth, requireApproved, async (_req, res) => {
 
 app.get("/api/admin/users", requireAuth, requireAdmin, async (_req, res) => {
   const r = await query(
-    `SELECT id, email, full_name, avatar_url, role, approved, approved_at, approved_by, created_at
+    `SELECT id, email, full_name, avatar_url, role, approved, can_announce, approved_at, approved_by, created_at
      FROM users ORDER BY created_at DESC`,
   );
   res.json(r.rows);
@@ -224,6 +224,13 @@ app.post("/api/admin/users/:id/approve", requireAuth, requireAdmin, async (req, 
     "UPDATE users SET approved = TRUE, approved_at = now(), approved_by = $1 WHERE id = $2",
     [req.user.id, req.params.id],
   );
+  
+  await query(
+    `INSERT INTO notifications (user_id, title, content, type)
+     VALUES ($1, 'Hesabınız Onaylandı', 'ClanBoard hesabınız yönetici tarafından onaylandı. Artık panoya tam erişim sağlayabilirsiniz!', 'task')`,
+    [req.params.id]
+  ).catch(console.error);
+
   res.json({ ok: true });
 });
 
@@ -239,8 +246,52 @@ app.post("/api/admin/users/:id/revoke", requireAuth, requireAdmin, async (req, r
 app.post("/api/admin/users/:id/role", requireAuth, requireAdmin, async (req, res) => {
   const { role } = req.body;
   if (!["admin", "member"].includes(role)) return res.status(400).json({ error: "bad_role" });
-  await query("UPDATE users SET role = $1 WHERE id = $2", [role, req.params.id]);
+  
+  // Update role and set can_announce automatically if admin
+  const canAnnounce = role === "admin";
+  await query("UPDATE users SET role = $1, can_announce = $2 WHERE id = $3", [role, canAnnounce, req.params.id]);
   res.json({ ok: true });
+});
+
+app.post("/api/admin/users/:id/permissions", requireAuth, requireAdmin, async (req, res) => {
+  const { role, can_announce } = req.body || {};
+  if (role && !["admin", "member"].includes(role)) return res.status(400).json({ error: "bad_role" });
+  
+  const sets = [];
+  const vals = [];
+  
+  if (role !== undefined) {
+    vals.push(role);
+    sets.push(`role = $${vals.length}`);
+  }
+  if (can_announce !== undefined) {
+    vals.push(!!can_announce);
+    sets.push(`can_announce = $${vals.length}`);
+  }
+  
+  if (!sets.length) return res.json({ ok: true });
+  vals.push(req.params.id);
+  await query(`UPDATE users SET ${sets.join(", ")}, updated_at = now() WHERE id = $${vals.length}`, vals);
+  res.json({ ok: true });
+});
+
+app.delete("/api/admin/users/:id", requireAuth, requireAdmin, async (req, res) => {
+  if (req.params.id === req.user.id) return res.status(400).json({ error: "cannot_delete_self" });
+  
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("UPDATE users SET approved_by = NULL WHERE approved_by = $1", [req.params.id]);
+    await client.query("DELETE FROM users WHERE id = $1", [req.params.id]);
+    await client.query("COMMIT");
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("[delete user error]", err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
 });
 
 // ---------- API: TASKS ----------
@@ -536,49 +587,61 @@ app.get("/api/github/status", requireAuth, requireApproved, async (req, res) => 
 });
 
 app.get("/api/github/repos", requireAuth, requireApproved, async (req, res) => {
-  const resp = await ghFetch(
-    req.user.id,
-    "/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member",
-  );
-  if (!resp.ok) return res.status(resp.status).send(await resp.text());
-  const data = await resp.json();
-  res.json(
-    data.map((r) => ({
-      full_name: r.full_name,
-      private: r.private,
-      description: r.description,
-      pushed_at: r.pushed_at,
-    })),
-  );
+  try {
+    const resp = await ghFetch(
+      req.user.id,
+      "/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member",
+    );
+    if (!resp.ok) return res.status(resp.status).send(await resp.text());
+    const data = await resp.json();
+    res.json(
+      data.map((r) => ({
+        full_name: r.full_name,
+        private: r.private,
+        description: r.description,
+        pushed_at: r.pushed_at,
+      })),
+    );
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get("/api/github/branches", requireAuth, requireApproved, async (req, res) => {
   const { repo } = req.query;
   if (!repo) return res.status(400).json({ error: "repo_required" });
-  const resp = await ghFetch(req.user.id, `/repos/${repo}/branches?per_page=100`);
-  if (!resp.ok) return res.status(resp.status).send(await resp.text());
-  const data = await resp.json();
-  res.json(data.map((b) => b.name));
+  try {
+    const resp = await ghFetch(req.user.id, `/repos/${repo}/branches?per_page=100`);
+    if (!resp.ok) return res.status(resp.status).send(await resp.text());
+    const data = await resp.json();
+    res.json(data.map((b) => b.name));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get("/api/github/commits", requireAuth, requireApproved, async (req, res) => {
   const { repo } = req.query;
   if (!repo) return res.status(400).json({ error: "repo_required" });
-  const resp = await ghFetch(req.user.id, `/repos/${repo}/commits?per_page=30`);
-  if (!resp.ok) return res.status(resp.status).send(await resp.text());
-  const rows = await resp.json();
-  res.json(
-    rows.map((c) => ({
-      sha: c.sha,
-      short_sha: c.sha.slice(0, 7),
-      message: c.commit.message,
-      html_url: c.html_url,
-      author_name: c.commit.author?.name ?? null,
-      author_login: c.author?.login ?? null,
-      author_avatar_url: c.author?.avatar_url ?? null,
-      committed_at: c.commit.author?.date ?? null,
-    })),
-  );
+  try {
+    const resp = await ghFetch(req.user.id, `/repos/${repo}/commits?per_page=30`);
+    if (!resp.ok) return res.status(resp.status).send(await resp.text());
+    const rows = await resp.json();
+    res.json(
+      rows.map((c) => ({
+        sha: c.sha,
+        short_sha: c.sha.slice(0, 7),
+        message: c.commit.message,
+        html_url: c.html_url,
+        author_name: c.commit.author?.name ?? null,
+        author_login: c.author?.login ?? null,
+        author_avatar_url: c.author?.avatar_url ?? null,
+        committed_at: c.commit.author?.date ?? null,
+      })),
+    );
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get("/api/tasks/:id/commits", requireAuth, requireApproved, async (req, res) => {
@@ -597,50 +660,14 @@ app.delete("/api/commits/:id", requireAuth, requireApproved, async (req, res) =>
 app.post("/api/tasks/:id/commits/attach", requireAuth, requireApproved, async (req, res) => {
   const { repo_full_name, sha } = req.body || {};
   if (!repo_full_name || !sha) return res.status(400).json({ error: "repo_and_sha_required" });
-  const resp = await ghFetch(req.user.id, `/repos/${repo_full_name}/commits/${sha}`);
-  if (!resp.ok) return res.status(resp.status).send(await resp.text());
-  const c = await resp.json();
-  await query(
-    `INSERT INTO task_commits(task_id, repo_full_name, sha, short_sha, message, author_name,
-       author_login, author_avatar_url, html_url, committed_at, added_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-     ON CONFLICT (task_id, sha) DO NOTHING`,
-    [
-      req.params.id,
-      repo_full_name,
-      c.sha,
-      c.sha.slice(0, 7),
-      (c.commit.message || "").split("\n")[0].slice(0, 200),
-      c.commit.author?.name || null,
-      c.author?.login || null,
-      c.author?.avatar_url || null,
-      c.html_url,
-      c.commit.author?.date || new Date().toISOString(),
-      req.user.id,
-    ],
-  );
-  res.json({ ok: true });
-});
-
-app.post("/api/tasks/:id/commits/sync", requireAuth, requireApproved, async (req, res) => {
-  const t = await query("SELECT repo_full_name, branch FROM tasks WHERE id = $1", [req.params.id]);
-  if (!t.rowCount) return res.status(404).json({ error: "task_not_found" });
-  const bodyRepo = req.body?.repo_full_name;
-  const bodyBranch = req.body?.branch;
-  const repo_full_name = bodyRepo || t.rows[0].repo_full_name;
-  const branch = bodyBranch !== undefined ? bodyBranch : t.rows[0].branch;
-  if (!repo_full_name) return res.json({ inserted: 0, total: 0 });
-  const q = new URLSearchParams({ per_page: "30" });
-  if (branch) q.set("sha", branch);
-  const resp = await ghFetch(req.user.id, `/repos/${repo_full_name}/commits?${q}`);
-  if (!resp.ok) return res.status(resp.status).send(await resp.text());
-  const commits = await resp.json();
-  let n = 0;
-  for (const c of commits) {
-    const r = await query(
+  try {
+    const resp = await ghFetch(req.user.id, `/repos/${repo_full_name}/commits/${sha}`);
+    if (!resp.ok) return res.status(resp.status).send(await resp.text());
+    const c = await resp.json();
+    await query(
       `INSERT INTO task_commits(task_id, repo_full_name, sha, short_sha, message, author_name,
-         author_login, author_avatar_url, html_url, committed_at, branch, added_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         author_login, author_avatar_url, html_url, committed_at, added_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        ON CONFLICT (task_id, sha) DO NOTHING`,
       [
         req.params.id,
@@ -653,13 +680,57 @@ app.post("/api/tasks/:id/commits/sync", requireAuth, requireApproved, async (req
         c.author?.avatar_url || null,
         c.html_url,
         c.commit.author?.date || new Date().toISOString(),
-        branch || null,
         req.user.id,
       ],
     );
-    if (r.rowCount) n++;
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json({ inserted: n, total: commits.length });
+});
+
+app.post("/api/tasks/:id/commits/sync", requireAuth, requireApproved, async (req, res) => {
+  try {
+    const t = await query("SELECT repo_full_name, branch FROM tasks WHERE id = $1", [req.params.id]);
+    if (!t.rowCount) return res.status(404).json({ error: "task_not_found" });
+    const bodyRepo = req.body?.repo_full_name;
+    const bodyBranch = req.body?.branch;
+    const repo_full_name = bodyRepo || t.rows[0].repo_full_name;
+    const branch = bodyBranch !== undefined ? bodyBranch : t.rows[0].branch;
+    if (!repo_full_name) return res.json({ inserted: 0, total: 0 });
+    const q = new URLSearchParams({ per_page: "30" });
+    if (branch) q.set("sha", branch);
+    const resp = await ghFetch(req.user.id, `/repos/${repo_full_name}/commits?${q}`);
+    if (!resp.ok) return res.status(resp.status).send(await resp.text());
+    const commits = await resp.json();
+    let n = 0;
+    for (const c of commits) {
+      const r = await query(
+        `INSERT INTO task_commits(task_id, repo_full_name, sha, short_sha, message, author_name,
+           author_login, author_avatar_url, html_url, committed_at, branch, added_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT (task_id, sha) DO NOTHING`,
+        [
+          req.params.id,
+          repo_full_name,
+          c.sha,
+          c.sha.slice(0, 7),
+          (c.commit.message || "").split("\n")[0].slice(0, 200),
+          c.commit.author?.name || null,
+          c.author?.login || null,
+          c.author?.avatar_url || null,
+          c.html_url,
+          c.commit.author?.date || new Date().toISOString(),
+          branch || null,
+          req.user.id,
+        ],
+      );
+      if (r.rowCount) n++;
+    }
+    res.json({ inserted: n, total: commits.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ---------- STATIC FRONTEND ----------

@@ -61,7 +61,7 @@ export async function currentUser(req) {
   const s = readSession(req);
   if (!s?.uid) return null;
   const r = await query(
-    "SELECT id, email, full_name, avatar_url, role, approved FROM users WHERE id = $1",
+    "SELECT id, email, full_name, avatar_url, role, approved, can_announce FROM users WHERE id = $1",
     [s.uid],
   );
   return r.rows[0] || null;

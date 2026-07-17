@@ -27,8 +27,11 @@ services:
       PORT: 3000
       APP_DATA_DIR: /data
       DATABASE_URL: postgresql://${POSTGRES_USER:-hyperush}:${POSTGRES_PASSWORD:-hyperush}@db:5432/${POSTGRES_DB:-hyperush}
-      # Cloudflare Tunnel arkasında çalışırken gerçek ziyaretçi IP'sini almak için
       TRUST_PROXY: "true"
+      SMTP_HOST: ${SMTP_HOST:-mail.podhyperush.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-noreply@podhyperush.com}
+      SMTP_PASS: ${SMTP_PASS}
     # Cloudflare Tunnel kullanıyorsan portu dışa açmana gerek yok.
     # Sadece yerel erişim / debug için istersen aç:
     ports:
