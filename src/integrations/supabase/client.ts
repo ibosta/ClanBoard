@@ -211,6 +211,17 @@ class QueryBuilder implements PromiseLike<Result<any>> {
       }
     }
 
+    // ---- comment_reactions ----
+    if (t === "comment_reactions") {
+      if (this.op === "insert") {
+        const v = Array.isArray(this.values) ? this.values[0] : this.values;
+        return apiFetch<Row>(`/api/comments/${v.comment_id}/reactions`, {
+          method: "POST",
+          body: JSON.stringify(v),
+        });
+      }
+    }
+
     // ---- task_commits ----
     if (t === "task_commits") {
       const taskId = this.eqVal("task_id");

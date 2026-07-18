@@ -296,7 +296,7 @@ app.delete("/api/admin/users/:id", requireAuth, requireAdmin, async (req, res) =
 
 // ---------- API: TASKS ----------
 
-const TASK_COLS = `id, title, description, status, priority, category, assignee_id, created_by,
+const TASK_COLS = `id, title, description, status, priority, category, assignee_ids, created_by,
   due_date, tags, repo_full_name, branch, issue_number, position, deleted_at,
   created_at, updated_at`;
 
@@ -312,7 +312,7 @@ app.get("/api/tasks", requireAuth, requireApproved, async (req, res) => {
 app.post("/api/tasks", requireAuth, requireApproved, async (req, res) => {
   const b = req.body || {};
   const r = await query(
-    `INSERT INTO tasks(title, description, status, priority, category, assignee_id, created_by,
+    `INSERT INTO tasks(title, description, status, priority, category, assignee_ids, created_by,
        due_date, tags, repo_full_name, branch, issue_number)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING ${TASK_COLS}`,
     [
@@ -321,7 +321,7 @@ app.post("/api/tasks", requireAuth, requireApproved, async (req, res) => {
       b.status || "todo",
       b.priority || "medium",
       b.category || "feature",
-      b.assignee_id || null,
+      Array.isArray(b.assignee_ids) ? b.assignee_ids : [],
       b.created_by || req.user.id,
       b.due_date || null,
       Array.isArray(b.tags) ? b.tags : [],
@@ -331,18 +331,22 @@ app.post("/api/tasks", requireAuth, requireApproved, async (req, res) => {
     ],
   );
   const newTask = r.rows[0];
-  if (newTask && newTask.assignee_id && newTask.assignee_id !== req.user.id) {
+  if (newTask && Array.isArray(newTask.assignee_ids)) {
     const creatorName = req.user.full_name || req.user.email || "Bir kullanıcı";
-    await query(
-      `INSERT INTO notifications(user_id, title, content, type, task_id)
-       VALUES ($1, $2, $3, 'task', $4)`,
-      [
-        newTask.assignee_id,
-        "Yeni Görev Atandı",
-        `${creatorName} size bir görev atadı: "${newTask.title}"`,
-        newTask.id
-      ]
-    ).catch(console.error);
+    for (const uid of newTask.assignee_ids) {
+      if (uid !== req.user.id) {
+        await query(
+          `INSERT INTO notifications(user_id, title, content, type, task_id)
+           VALUES ($1, $2, $3, 'task', $4)`,
+          [
+            uid,
+            "Yeni Görev Atandı",
+            `${creatorName} size bir görev atadı: "${newTask.title}"`,
+            newTask.id
+          ]
+        ).catch(console.error);
+      }
+    }
   }
   res.json(newTask);
 });
@@ -350,12 +354,12 @@ app.post("/api/tasks", requireAuth, requireApproved, async (req, res) => {
 app.patch("/api/tasks/:id", requireAuth, requireApproved, async (req, res) => {
   const b = req.body || {};
   const fields = [
-    "title", "description", "status", "priority", "category", "assignee_id",
+    "title", "description", "status", "priority", "category", "assignee_ids",
     "due_date", "tags", "repo_full_name", "branch", "issue_number", "position",
     "deleted_at",
   ];
-  const oldTask = await query("SELECT assignee_id FROM tasks WHERE id = $1", [req.params.id]).catch(() => null);
-  const prevAssigneeId = oldTask && oldTask.rowCount > 0 ? oldTask.rows[0].assignee_id : null;
+  const oldTask = await query("SELECT assignee_ids FROM tasks WHERE id = $1", [req.params.id]).catch(() => null);
+  const prevAssigneeIds = oldTask && oldTask.rowCount > 0 ? (oldTask.rows[0].assignee_ids || []) : [];
 
   const sets = [];
   const vals = [];
@@ -373,18 +377,27 @@ app.patch("/api/tasks/:id", requireAuth, requireApproved, async (req, res) => {
     vals,
   );
   const updatedTask = r.rows[0];
-  if (updatedTask && updatedTask.assignee_id && updatedTask.assignee_id !== prevAssigneeId && updatedTask.assignee_id !== req.user.id) {
-    const updaterName = req.user.full_name || req.user.email || "Bir kullanıcı";
-    await query(
-      `INSERT INTO notifications(user_id, title, content, type, task_id)
-       VALUES ($1, $2, $3, 'task', $4)`,
-      [
-        updatedTask.assignee_id,
-        "Görev Atandı",
-        `${updaterName} size bir görev atadı: "${updatedTask.title}"`,
-        updatedTask.id
-      ]
-    ).catch(console.error);
+  if (updatedTask && Array.isArray(updatedTask.assignee_ids)) {
+    const newAssignees = updatedTask.assignee_ids;
+    const addedAssignees = newAssignees.filter(id => !prevAssigneeIds.includes(id));
+    
+    if (addedAssignees.length > 0) {
+      const updaterName = req.user.full_name || req.user.email || "Bir kullanıcı";
+      for (const uid of addedAssignees) {
+        if (uid !== req.user.id) {
+          await query(
+            `INSERT INTO notifications(user_id, title, content, type, task_id)
+             VALUES ($1, $2, $3, 'task', $4)`,
+            [
+              uid,
+              "Görev Atandı",
+              `${updaterName} size bir görev atadı: "${updatedTask.title}"`,
+              updatedTask.id
+            ]
+          ).catch(console.error);
+        }
+      }
+    }
   }
   res.json(updatedTask);
 });
@@ -400,7 +413,16 @@ app.delete("/api/tasks/:id", requireAuth, requireApproved, async (req, res) => {
 
 app.get("/api/tasks/:id/comments", requireAuth, requireApproved, async (req, res) => {
   const r = await query(
-    "SELECT * FROM task_comments WHERE task_id = $1 ORDER BY created_at ASC",
+    `SELECT c.*,
+       COALESCE(
+         (SELECT json_agg(json_build_object('user_id', user_id, 'emoji', emoji))
+          FROM comment_reactions
+          WHERE comment_id = c.id),
+         '[]'::json
+       ) AS reactions
+     FROM task_comments c
+     WHERE c.task_id = $1
+     ORDER BY c.created_at ASC`,
     [req.params.id],
   );
   res.json(r.rows);
@@ -417,15 +439,19 @@ app.post("/api/tasks/:id/comments", requireAuth, requireApproved, async (req, re
   
   const newComment = r.rows[0];
   try {
-    const taskResult = await query("SELECT title, assignee_id FROM tasks WHERE id = $1", [req.params.id]);
+    const taskResult = await query("SELECT title, assignee_ids FROM tasks WHERE id = $1", [req.params.id]);
     if (taskResult.rowCount > 0) {
       const task = taskResult.rows[0];
       const commentatorName = req.user.full_name || req.user.email || "Bir kullanıcı";
       
       const toNotify = new Set();
       
-      if (task.assignee_id && task.assignee_id !== req.user.id) {
-        toNotify.add(task.assignee_id);
+      if (Array.isArray(task.assignee_ids)) {
+        for (const aid of task.assignee_ids) {
+          if (aid && aid !== req.user.id) {
+            toNotify.add(aid);
+          }
+        }
       }
       
       if (parent_id) {
@@ -506,6 +532,57 @@ app.delete("/api/comments/:id", requireAuth, requireApproved, async (req, res) =
     return res.status(403).json({ error: "forbidden" });
   await query("DELETE FROM task_comments WHERE id = $1", [req.params.id]);
   res.json({ ok: true });
+});
+
+app.post("/api/comments/:commentId/reactions", requireAuth, requireApproved, async (req, res) => {
+  const commentId = req.params.commentId;
+  const emoji = req.body.emoji;
+  const userId = req.user.id;
+  if (!emoji) return res.status(400).json({ error: "emoji_required" });
+
+  try {
+    const check = await query(
+      "SELECT id FROM comment_reactions WHERE comment_id = $1 AND user_id = $2 AND emoji = $3",
+      [commentId, userId, emoji]
+    );
+
+    if (check.rowCount > 0) {
+      await query(
+        "DELETE FROM comment_reactions WHERE comment_id = $1 AND user_id = $2 AND emoji = $3",
+        [commentId, userId, emoji]
+      );
+      return res.json({ toggled: "removed" });
+    } else {
+      const r = await query(
+        "INSERT INTO comment_reactions(comment_id, user_id, emoji) VALUES ($1, $2, $3) RETURNING *",
+        [commentId, userId, emoji]
+      );
+      
+      const commentRes = await query("SELECT author_id, task_id, content FROM task_comments WHERE id = $1", [commentId]);
+      if (commentRes.rowCount > 0) {
+        const comment = commentRes.rows[0];
+        const commentatorId = comment.author_id;
+        if (commentatorId && commentatorId !== userId) {
+          const reactorName = req.user.full_name || req.user.email || "Bir kullanıcı";
+          await query(
+            `INSERT INTO notifications(user_id, title, content, type, task_id, comment_id)
+             VALUES ($1, $2, $3, 'comment', $4, $5)`,
+            [
+              commentatorId,
+              "Yorumuna Tepki Bırakıldı",
+              `${reactorName} yorumuna ${emoji} tepkisini bıraktı: "${comment.content.slice(0, 50)}"`,
+              comment.task_id,
+              commentId
+            ]
+          ).catch(console.error);
+        }
+      }
+      return res.json({ toggled: "added", reaction: r.rows[0] });
+    }
+  } catch (err) {
+    console.error("[reaction error]", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ---------- API: NOTIFICATIONS ----------

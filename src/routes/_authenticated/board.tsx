@@ -11,7 +11,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Calendar as CalendarIcon, GripVertical, Circle, Play, Eye, CheckCircle2, MessageCircle, HelpCircle, AlertTriangle, Activity, StickyNote, Send, CornerDownRight, Reply, X, Sparkles, Bug, Wrench, Palette, FileText, Hammer, Flame, ArrowDown, ArrowRight, ArrowUp, Zap, User as UserIcon, Flag, RotateCcw, Trash, Github, GitCommit, ExternalLink, Search, RefreshCw, GitBranch, Check } from "lucide-react";
+import { Plus, Trash2, Calendar as CalendarIcon, GripVertical, Circle, Play, Eye, CheckCircle2, MessageCircle, HelpCircle, AlertTriangle, Activity, StickyNote, Send, CornerDownRight, Reply, X, Sparkles, Bug, Wrench, Palette, FileText, Hammer, Flame, ArrowDown, ArrowRight, ArrowUp, Zap, User as UserIcon, Flag, RotateCcw, Trash, Github, GitCommit, ExternalLink, Search, RefreshCw, GitBranch, Check, Smile } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -42,7 +42,7 @@ interface Task {
   status: Status;
   priority: Priority;
   category: Category;
-  assignee_id: string | null;
+  assignee_ids: string[];
   created_by: string;
   position: number;
   due_date: string | null;
@@ -105,6 +105,11 @@ const CATEGORY_MAP = Object.fromEntries(CATEGORIES.map((c) => [c.id, c])) as Rec
 
 type CommentType = "note" | "question" | "update" | "blocker";
 
+interface Reaction {
+  user_id: string;
+  emoji: string;
+}
+
 interface Comment {
   id: string;
   task_id: string;
@@ -114,6 +119,7 @@ interface Comment {
   created_at: string;
   updated_at: string;
   parent_id: string | null;
+  reactions?: Reaction[];
 }
 
 const COMMENT_TYPES: { id: CommentType; label: string; icon: typeof StickyNote; color: string; bg: string; border: string }[] = [
@@ -166,13 +172,15 @@ function Board() {
       const descMatch = (t.description || "").toLowerCase().includes(q);
       const tagsMatch = t.tags && t.tags.some((tag) => tag.toLowerCase().includes(q));
       let assigneeMatch = false;
-      if (t.assignee_id) {
-        const p = profilesById.get(t.assignee_id);
-        if (p) {
-          assigneeMatch =
-            (p.full_name || "").toLowerCase().includes(q) ||
-            (p.email || "").toLowerCase().includes(q);
-        }
+      if (t.assignee_ids && Array.isArray(t.assignee_ids)) {
+        assigneeMatch = t.assignee_ids.some((uid) => {
+          const p = profilesById.get(uid);
+          return (
+            p &&
+            ((p.full_name || "").toLowerCase().includes(q) ||
+              (p.email || "").toLowerCase().includes(q))
+          );
+        });
       }
       return titleMatch || descMatch || tagsMatch || assigneeMatch;
     });
@@ -362,8 +370,10 @@ function Board() {
             </div>
             <div className="flex-1 p-2 space-y-2 overflow-y-auto">
               {byColumn[col.id].map((task) => {
-                const assignee = task.assignee_id ? profilesById.get(task.assignee_id) : null;
-                const isMine = task.assignee_id === user.id;
+                const assignees = (task.assignee_ids || [])
+                  .map((id) => profilesById.get(id))
+                  .filter(Boolean) as Profile[];
+                const isMine = task.assignee_ids && task.assignee_ids.includes(user.id);
                 const pr = PRIORITY_MAP[task.priority];
                 const cat = CATEGORY_MAP[task.category];
                 const CatIcon = cat.icon;
@@ -424,16 +434,32 @@ function Board() {
                         )}
                         <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
                           <div className="flex items-center gap-2">
-                            {assignee ? (
-                              assignee.avatar_url ? (
-                                <img src={assignee.avatar_url} alt="" className="h-5 w-5 rounded-full" />
-                              ) : (
-                                <div className="h-5 w-5 rounded-full bg-primary/20 grid place-items-center text-[9px] font-semibold text-primary">
-                                  {(assignee.full_name || assignee.email || "?").slice(0, 2).toUpperCase()}
-                                </div>
-                              )
+                            {assignees.length > 0 ? (
+                              <div className="flex -space-x-1.5 overflow-hidden">
+                                {assignees.map((asg) =>
+                                  asg.avatar_url ? (
+                                    <img
+                                      key={asg.id}
+                                      src={asg.avatar_url}
+                                      alt={asg.full_name || ""}
+                                      title={asg.full_name || asg.email || ""}
+                                      className="inline-block h-5 w-5 rounded-full ring-1 ring-background object-cover"
+                                    />
+                                  ) : (
+                                    <div
+                                      key={asg.id}
+                                      title={asg.full_name || asg.email || ""}
+                                      className="inline-block h-5 w-5 rounded-full ring-1 ring-background bg-primary/20 grid place-items-center text-[8px] font-semibold text-primary"
+                                    >
+                                      {(asg.full_name || asg.email || "?").slice(0, 2).toUpperCase()}
+                                    </div>
+                                  )
+                                )}
+                              </div>
                             ) : (
-                              <div className="h-5 w-5 rounded-full border border-dashed border-border" />
+                              <div className="h-5 w-5 rounded-full border border-dashed border-border/30 grid place-items-center text-muted-foreground/50">
+                                <UserIcon className="h-3 w-3" />
+                              </div>
                             )}
                             {task.due_date && (
                               <span className="flex items-center gap-1">
@@ -442,7 +468,7 @@ function Board() {
                               </span>
                             )}
                           </div>
-                          {(task.created_by === user.id || task.assignee_id === user.id) && (
+                          {(task.created_by === user.id || (task.assignee_ids && task.assignee_ids.includes(user.id))) && (
                             <button
                               onClick={(e) => { e.stopPropagation(); softDeleteTask(task.id, task.title); }}
                               className="opacity-0 group-hover:opacity-100 hover:text-destructive transition-all"
@@ -516,7 +542,7 @@ function TaskDialog({
   const [status, setStatus] = useState<Status>("todo");
   const [priority, setPriority] = useState<Priority>("medium");
   const [category, setCategory] = useState<Category>("feature");
-  const [assigneeId, setAssigneeId] = useState<string>("none");
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState("");
   const [tags, setTags] = useState("");
   const [repoFullName, setRepoFullName] = useState<string>("");
@@ -531,7 +557,7 @@ function TaskDialog({
       setStatus(task.status);
       setPriority(task.priority);
       setCategory(task.category || "feature");
-      setAssigneeId(task.assignee_id || "none");
+      setAssigneeIds(task.assignee_ids || []);
       setDueDate(task.due_date ? task.due_date.slice(0, 10) : "");
       setTags((task.tags || []).join(", "));
       setRepoFullName(task.repo_full_name || "");
@@ -543,7 +569,7 @@ function TaskDialog({
       setStatus(defaultStatus || "todo");
       setPriority("medium");
       setCategory("feature");
-      setAssigneeId("none");
+      setAssigneeIds([]);
       setDueDate("");
       setTags("");
       setRepoFullName("");
@@ -562,7 +588,7 @@ function TaskDialog({
       status,
       priority,
       category,
-      assignee_id: assigneeId === "none" ? null : assigneeId,
+      assignee_ids: assigneeIds,
       due_date: dueDate || null,
       tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
       repo_full_name: repoFullName.trim() || null,
@@ -675,28 +701,33 @@ function TaskDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wide text-muted-foreground">Atanan</Label>
+            <Label className="text-xs uppercase tracking-wide text-muted-foreground">Atananlar</Label>
             <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
-                onClick={() => setAssigneeId("none")}
+                onClick={() => setAssigneeIds([])}
                 className={`inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border transition-all ${
-                  assigneeId === "none" ? "border-primary/50 bg-primary/10 text-foreground" : "border-border/60 text-muted-foreground"
+                  assigneeIds.length === 0 ? "border-primary/50 bg-primary/10 text-foreground" : "border-border/60 text-muted-foreground"
                 }`}
               >
                 <UserIcon className="h-3.5 w-3.5" />
                 Kimse
               </button>
               {profiles.map((p) => {
-                const active = assigneeId === p.id;
+                const active = assigneeIds.includes(p.id);
                 const name = p.full_name || p.email || "Kullanıcı";
                 const isSelf = p.id === currentUserId;
+                const toggle = () => {
+                  setAssigneeIds((prev) =>
+                    prev.includes(p.id) ? prev.filter((id) => id !== p.id) : [...prev, p.id]
+                  );
+                };
                 return (
                   <button
                     type="button"
                     key={p.id}
-                    onClick={() => setAssigneeId(p.id)}
-                    className={`inline-flex items-center gap-1.5 text-xs pl-1 pr-2.5 py-1 rounded-full border transition-all ${
+                    onClick={toggle}
+                    className={`inline-flex items-center gap-1.5 text-xs pl-1 pr-2.5 py-1 rounded-full border transition-all cursor-pointer ${
                       active ? "border-primary/60 bg-primary/10 text-foreground" : "border-border/60 text-muted-foreground hover:border-border"
                     }`}
                   >
@@ -1042,6 +1073,7 @@ function SingleCommentItem({
   targetCommentId,
   replies,
   Icon,
+  profilesById,
 }: {
   c: Comment;
   depth: number;
@@ -1058,6 +1090,7 @@ function SingleCommentItem({
   targetCommentId: string | undefined;
   replies: Comment[];
   Icon: any;
+  profilesById: Map<string, Profile>;
 }) {
   const navigate = useNavigate();
   const elementRef = useRef<HTMLDivElement>(null);
@@ -1097,6 +1130,37 @@ function SingleCommentItem({
       }, 400);
     }
   }, [isHighlighted]);
+
+  const reactionsGrouped = useMemo(() => {
+    const list = c.reactions || [];
+    const grouped: Record<string, string[]> = {};
+    list.forEach((r) => {
+      if (!grouped[r.emoji]) grouped[r.emoji] = [];
+      grouped[r.emoji].push(r.user_id);
+    });
+    return Object.entries(grouped).map(([emoji, uids]) => {
+      const hasReacted = uids.includes(currentUserId);
+      const userNames = uids.map(id => {
+        const u = profilesById.get(id);
+        return u ? (u.full_name || u.email || "Kullanıcı") : "Bilinmeyen Üye";
+      });
+      return {
+        emoji,
+        count: uids.length,
+        hasReacted,
+        userNames,
+      };
+    });
+  }, [c.reactions, currentUserId, profilesById]);
+
+  const handleToggleReaction = async (emoji: string) => {
+    const { error } = await supabase.from("comment_reactions").insert({
+      comment_id: c.id,
+      emoji,
+      user_id: currentUserId,
+    });
+    if (error) toast.error(error.message);
+  };
 
   return (
     <div
@@ -1146,7 +1210,7 @@ function SingleCommentItem({
       <div className="text-sm whitespace-pre-wrap leading-relaxed">
         {renderCommentContent(c.content, taskCommits, repoFullName)}
       </div>
-      <div className="mt-2 flex items-center gap-3">
+      <div className="mt-2 flex flex-wrap items-center gap-2.5">
         <button
           type="button"
           onClick={() => {
@@ -1154,13 +1218,67 @@ function SingleCommentItem({
             setReplyTo(isReplying ? null : c.id);
             setContent("");
           }}
-          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
         >
           {isReplying ? <><X className="h-3 w-3" /> İptal</> : <><Reply className="h-3 w-3" /> Yanıtla</>}
         </button>
         {replies.length > 0 && (
           <span className="text-[11px] text-muted-foreground">{replies.length} yanıt</span>
         )}
+
+        <div className="h-3 w-px bg-border/60 shrink-0" />
+
+        {/* Emoji Tepkileri Listesi */}
+        {reactionsGrouped.map(({ emoji, count, hasReacted, userNames }) => (
+          <button
+            key={emoji}
+            type="button"
+            title={userNames.join(", ")}
+            onClick={() => handleToggleReaction(emoji)}
+            className={cn(
+              "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border transition-all cursor-pointer",
+              hasReacted
+                ? "bg-primary/10 border-primary/45 text-foreground"
+                : "bg-muted/10 border-border/60 text-muted-foreground hover:border-border"
+            )}
+          >
+            <span>{emoji}</span>
+            <span className="text-[10px] font-semibold">{count}</span>
+          </button>
+        ))}
+
+        {/* Tepki Ekle Butonu */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors p-1 cursor-pointer"
+              title="Tepki Ekle"
+            >
+              <Smile className="h-3.5 w-3.5" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-1.5 flex gap-1.5 bg-popover/95 backdrop-blur border border-border shadow-md rounded-md" align="start">
+            {["👍", "❤️", "🔥", "🚀", "👀", "🎉", "👏", "💡"].map((emoji) => {
+              const hasReacted = (c.reactions || []).some(
+                (r) => r.user_id === currentUserId && r.emoji === emoji
+              );
+              return (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => handleToggleReaction(emoji)}
+                  className={cn(
+                    "text-sm p-1.5 rounded hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer",
+                    hasReacted && "bg-accent"
+                  )}
+                >
+                  {emoji}
+                </button>
+              );
+            })}
+          </PopoverContent>
+        </Popover>
       </div>
     </div>
   );
@@ -1211,16 +1329,37 @@ function CommentsPanel({ taskId, profiles, currentUserId, repoFullName }: { task
           if (payload.eventType === "INSERT") {
             const n = payload.new as Comment;
             if (prev.some((c) => c.id === n.id)) return prev;
-            return [...prev, n];
+            return [...prev, { ...n, reactions: [] }];
           }
           if (payload.eventType === "UPDATE") {
             const n = payload.new as Comment;
-            return prev.map((c) => (c.id === n.id ? n : c));
+            return prev.map((c) => (c.id === n.id ? { ...n, reactions: c.reactions || [] } : c));
           }
           if (payload.eventType === "DELETE") {
             return prev.filter((c) => c.id !== (payload.old as Comment).id);
           }
           return prev;
+        });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "comment_reactions" }, (payload) => {
+        setComments((prev) => {
+          return prev.map((c) => {
+            if (payload.eventType === "INSERT") {
+              const r = payload.new as any;
+              if (c.id === r.comment_id) {
+                const existing = c.reactions || [];
+                if (existing.some((x) => x.user_id === r.user_id && x.emoji === r.emoji)) return c;
+                return { ...c, reactions: [...existing, { user_id: r.user_id, emoji: r.emoji }] };
+              }
+            } else if (payload.eventType === "DELETE") {
+              const r = payload.old as any;
+              if (c.id === r.comment_id) {
+                const existing = c.reactions || [];
+                return { ...c, reactions: existing.filter((x) => !(x.user_id === r.user_id && x.emoji === r.emoji)) };
+              }
+            }
+            return c;
+          });
         });
       })
       .subscribe();
@@ -1297,6 +1436,7 @@ function CommentsPanel({ taskId, profiles, currentUserId, repoFullName }: { task
           targetCommentId={targetCommentId}
           replies={allReplies}
           Icon={Icon}
+          profilesById={profilesById}
         />
 
         {isReplying && (
@@ -1732,7 +1872,9 @@ function TrashDialog({
         ) : (
           <div className="space-y-2">
             {trash.map((task) => {
-              const assignee = task.assignee_id ? profilesById.get(task.assignee_id) : null;
+              const assignees = (task.assignee_ids || [])
+                .map((id) => profilesById.get(id))
+                .filter(Boolean) as Profile[];
               const pr = PRIORITY_MAP[task.priority];
               const cat = CATEGORY_MAP[task.category];
               const CatIcon = cat.icon;
@@ -1761,9 +1903,9 @@ function TrashDialog({
                     {task.description && (
                       <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{task.description}</p>
                     )}
-                    {assignee && (
+                    {assignees.length > 0 && (
                       <p className="text-[11px] text-muted-foreground mt-1">
-                        Atanan: {assignee.full_name || assignee.email}
+                        Atananlar: {assignees.map((a) => a.full_name || a.email).join(", ")}
                       </p>
                     )}
                   </div>
